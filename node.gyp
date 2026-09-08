@@ -578,7 +578,9 @@
           '-Wl,-bnoerrmsg',
         ],
       }],
-      ['OS=="linux" and clang==1', {
+    ],
+    'target_conditions': [
+      ['(_toolset=="target" and <(node_use_libatomic)==1) or (_toolset=="host" and <(node_use_libatomic_host)==1)', {
         'libraries': ['-latomic'],
       }],
     ],

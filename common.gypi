@@ -31,6 +31,8 @@
     'uv_library%': 'static_library',
 
     'clang%': 0,
+    'node_use_libatomic%': 0,
+    'node_use_libatomic_host%': 0,
     'error_on_warn%': 'false',
     'suppress_all_error_on_warn%': 'false',
     'control_flow_guard%': 'false',

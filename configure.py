@@ -12,6 +12,7 @@ import subprocess
 import shutil
 import bz2
 import io
+import tempfile
 from pathlib import Path
 
 # If not run from node/, cd to node/.
@@ -2180,6 +2181,51 @@ def configure_node(o):
     print('Warning! Loading builtin modules from disk is for development')
     o['variables']['node_builtin_modules_path'] = options.node_builtin_modules_path
 
+def configure_atomic(o):
+  for toolset in ('target', 'host'):
+    suffix = '_host' if toolset == 'host' else ''
+    node_use_libatomic_var = 'node_use_libatomic' + suffix
+    o['variables'][node_use_libatomic_var] = 0
+
+    if toolset == 'host' and not o['variables']['want_separate_host_toolset']:
+      continue
+
+    cxx = os.environ.get('CXX_' + toolset, CXX)
+    command = shlex.split(cxx) + ['-std=gnu++20']
+    tool_arch = (o['variables']['host_arch'] if toolset == 'host' else o['variables']['target_arch'])
+    os_flavor = GetFlavor({}) if toolset == 'host' else flavor
+
+    arch = o['variables'][toolset + '_arch']
+    if not ((os_flavor == 'linux' and o['variables']['clang']) or
+            (arch in ('mips64', 'mips64el', 'arm', 'riscv64', 'loong64'))):
+      continue
+
+    if tool_arch in ('ia32', 'x64'):
+      command += ['-m32' if tool_arch == 'ia32' else '-m64']
+    for name in ('CPPFLAGS', 'CXXFLAGS', 'LDFLAGS'):
+      command += shlex.split(os.environ.get(name + suffix, ''))
+    if options.fully_static:
+      command += ['-static']
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+      command += ['tools/configure.d/atomic.cc', '-o', str(Path(tmpdir) / 'atomic')]
+      # Check whether we need to link with -latomic.
+      # compiler-rt can provide atomics without an explicit -latomic.
+      for libraries in ([], ['-latomic']):
+        print_verbose(shlex.join(command + libraries))
+        try:
+          proc = subprocess.run(command + libraries, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True)
+        except OSError as e:
+          error(f'Could not check {toolset} atomic support: {e}')
+        print_verbose(proc.stdout + proc.stderr)
+        if proc.returncode == 0:
+          o['variables'][node_use_libatomic_var] = B(bool(libraries))
+          break
+      else:
+        error(f'Could not link {toolset} atomics with or without -latomic: {proc.stderr}')
+
+
 def configure_napi(output):
   version = getnapibuildversion.get_napi_version()
   output['variables']['napi_build_version'] = version
@@ -2888,6 +2934,7 @@ if options.dest_os:
 flavor = GetFlavor(flavor_params)
 
 configure_node(output)
+configure_atomic(output)
 configure_node_lib_files(output)
 configure_node_cctest_sources(output)
 configure_napi(output)
